@@ -28,11 +28,11 @@
 |#
 
 (define-syntax-rule
-  (with-transform dc ([xf p* ...] ...) body ...)
+  (with-transform dc (xf ...) body ...)
   (let ([init-tf (send dc get-transformation)])
     (dynamic-wind
      (lambda ()
-       (send dc xf p* ...) ...)
+       (send* dc xf ...))
      (lambda () body ...)
      (lambda () (send dc set-transformation init-tf)))))
 
@@ -76,25 +76,6 @@
 
     (super-new)))
 
-(define (make-view w h model ctrl)
-  (define f
-    (new (class frame%
-           ;; make the canvas have focus if the window gets focus
-           (define/override (on-focus f)
-             (super on-focus f)
-             (send (car (send this get-children)) focus))
-           (super-new))
-         [label "slimestroids"]
-         [width w]
-         [height h]))
-
-  (define c
-    (new game-view%
-         [parent f]
-         [ctrl ctrl]
-         [model model]))
-  f)
-
 (define (game)
   (define state
     (box (ship (posn 0 0) 0 0)))
@@ -102,5 +83,20 @@
   (define ctrl
     (new game-ctrl% [model state]))
 
-  (define v (make-view 500 500 state ctrl))
+  (define v
+    (new (class frame%
+           ;; make the canvas have focus if the window gets focus
+           (define/override (on-focus f)
+             (super on-focus f)
+             (send (car (send this get-children)) focus))
+           (super-new))
+         [label "slimestroids"]
+         [width 500]
+         [height 500]))
+
+  (define c
+    (new game-view%
+         [parent v]
+         [ctrl ctrl]
+         [model state]))
   (send v show #t))
