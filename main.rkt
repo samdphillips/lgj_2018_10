@@ -108,9 +108,10 @@
   (when (> power 0)
     (let ([orig (send dc get-pen)])
       (let* ([pwr (/ power INIT-PARTICLE-POWER)]
-             [g ((lerp 255 0 #t) pwr)]
-             [c #;(make-object color% "red")
-                (make-color g g g pwr)]
+             [r ((lerp 232 140 #t) pwr)]
+             [g ((lerp 174 21 #t) pwr)]
+             [b ((lerp 39 2 #t) pwr)]
+             [c (make-color r g b pwr)]
              [s ((lerp 1 5 #f) pwr)])
         (send dc set-pen c s 'solid)
         (send dc draw-point x y))
@@ -131,6 +132,9 @@
       (define-values (width height) (get-size))
       (define g (unbox model))
       (send dc set-smoothing 'smoothed)
+      (send dc set-background "black")
+      (send dc set-text-foreground "white")
+      (send dc clear)
       (with-transform dc
         ([translate (/ width 2) (/ height 2)]
          [scale 2 -2])
