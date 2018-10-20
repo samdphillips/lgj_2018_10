@@ -11,10 +11,11 @@
          lens/common
          lens/data/struct)
 
-(define MAX-SHIP-SPEED 20)
-(define SHIP-POOF 2)
-(define SPACE-FRICTION 1/1000)
+(define MAX-SHIP-SPEED 100)
+(define SHIP-POOF 5)
+(define SPACE-FRICTION -1/1000)
 (define SHIP-TURN (/ pi 18))
+(define INIT-PARTICLE-POWER 100)
 
 (define (lens/get+set lens)
   (values (lambda (x)   (lens-view lens x))
@@ -30,7 +31,6 @@
 (define (posn* d p)
   (match-define (posn x y) p)
   (posn (* d x) (* d y)))
-
 
 (define (posn-magnitude p)
   (match-define (posn x y) p)
@@ -53,11 +53,20 @@
 (define (ship-x s) (lens-view ship-x-lens s))
 (define (ship-y s) (lens-view ship-y-lens s))
 
+(define (ship-exhaust-port s)
+  (match-define (ship (posn x y) dir _) s)
+  (posn (+ x (* (cos dir) -5))
+        (+ y (* (sin dir) -5))))
+
+(struct/lens particle [posn v power] #:transparent)
+
 #|
 (struct bullet [posn v] #:transparent)
 
 (struct slime [posn v] #:transparent)
 |#
+
+(struct/lens game [ship particles] #:transparent)
 
 (define ((state-transform lens txform) v)
   (lens-transform lens v txform))
@@ -76,17 +85,36 @@
     (make-immutable-hasheq
      (list (cons 'key (state-transform lens txform)) ...))))
 
+(define ((lerp start end round?) v)
+  (let ([m (/ (- start end) -1)]
+        [r (if round? (lambda (v) (inexact->exact (round v))) values)])
+    (r (+ start (* m v)))))
+
 (define (draw-ship s dc)
   (with-transform dc
     ([translate (ship-x s) (ship-y s)]
      [rotate (- (ship-dir s))])
     (send dc draw-polygon
-          '((-5 . 5) (-5 . -5) (10 . 0)))))
+          '((-5 . 5) (-5 . -5) (10 . 0))))
 
-(define state-ship-lens identity-lens)
+  (match-let ([(posn x y) (ship-exhaust-port s)])
+    (let ([orig (send dc get-pen)])
+      (send dc set-pen "red" 5 'solid)
+      (send dc draw-point x y)
+      (send dc set-pen orig))))
 
-(define-values (state-ship state-ship-set)
-  (lens/get+set state-ship-lens))
+(define (draw-particle p dc)
+  (match-define (particle (posn x y) _ power) p)
+  (when (> power 0)
+    (let ([orig (send dc get-pen)])
+      (let* ([pwr (/ power INIT-PARTICLE-POWER)]
+             [g ((lerp 255 0 #t) pwr)]
+             [c #;(make-object color% "red")
+                (make-color g g g pwr)]
+             [s ((lerp 1 5 #f) pwr)])
+        (send dc set-pen c s 'solid)
+        (send dc draw-point x y))
+      (send dc set-pen orig))))
 
 (define game-view%
   (class canvas%
@@ -101,17 +129,21 @@
 
     (define (do-paint canvas dc)
       (define-values (width height) (get-size))
+      (define g (unbox model))
       (send dc set-smoothing 'smoothed)
       (with-transform dc
         ([translate (/ width 2) (/ height 2)]
          [scale 2 -2])
-        (draw-ship (state-ship (unbox model)) dc))
-      (match-let ([(ship (posn x y) dir (posn dx dy)) (unbox model)])
+        (for ([p (in-list (game-particles g))])
+          (draw-particle p dc))
+        (draw-ship (game-ship g) dc))
+      (match-let ([(game (ship (posn x y) dir (posn dx dy)) p*) g])
         (define txt
           (list
            (~a "posn: (" (~r x) ", " (~r y) ")")
            (~a "vec:  (" (~r dx) ", " (~r dy) ")")
-           (~a "dir: " (~r dir))))
+           (~a "dir: " (~r dir))
+           (~a "particles: " (length p*))))
         (send dc set-font (make-font #:size 10))
         (for ([r (in-naturals)]
               [t (in-list txt)])
@@ -141,11 +173,31 @@
     (define/public (on-update d model)
       (lens-transform/list
        model
-       state-ship-lens
+
+       game-ship-lens
        (lambda (ship)
          (lens-transform ship-posn-lens ship
                          (lambda (p)
                            (posn+ p (posn* d (ship-v ship))))))
+
+       game-particles-lens
+       (lambda (p*)
+         (for/fold ([r* null]) ([p (in-list p*)])
+           (let ([pwr (particle-power p)])
+             (if (< pwr 0)
+                 r*
+                 (cons (lens-set particle-power-lens p (sub1 pwr)) r*)))))
+
+       game-particles-lens
+       (lambda (p*)
+         (for/list ([p (in-list p*)])
+           (lens-transform particle-posn-lens p
+                           (lambda (o)
+                             (posn+ o (particle-v p))))))
+
+       (lens-thrush game-ship-lens ship-v-lens)
+       (lambda (p)
+         (posn+ (posn* SPACE-FRICTION p) p))
        ))
 
     (define update-timer
@@ -161,41 +213,59 @@
     (super-new)))
 
 (define-keymap keymap
+  [escape
+   identity-lens
+   (lambda (g)
+     (game (ship (posn 0 0) 0 (posn 0 0)) null))]
+
   [#\w
-   state-ship-lens
-   (lambda (ship)
-     (let ([d (ship-dir ship)])
-       (lens-set
-        ship-v-lens
-        ship
-        (let* ([p (posn+ (ship-v ship)
-                         (posn (* (cos d) SHIP-POOF)
-                               (* (sin d) SHIP-POOF)))]
-               [m (posn-magnitude p)])
-          (cond
-            [(< m MAX-SHIP-SPEED) p]
-            [else
-             (posn+ p (posn (* (cos d) (- MAX-SHIP-SPEED m))
-                            (* (sin d) (- MAX-SHIP-SPEED m))))])))))]
+   identity-lens
+   (lambda (game)
+     (lens-transform/list
+      game
+
+      game-ship-lens
+      (lambda (ship)
+        (let ([d (ship-dir ship)])
+          (lens-set
+           ship-v-lens
+           ship
+           (let* ([p (posn+ (ship-v ship)
+                            (posn (* (cos d) SHIP-POOF)
+                                  (* (sin d) SHIP-POOF)))]
+                  [m (posn-magnitude p)])
+             (cond
+               [(< m MAX-SHIP-SPEED) p]
+               [else
+                (posn+ p (posn (* (cos d) (- MAX-SHIP-SPEED m))
+                               (* (sin d) (- MAX-SHIP-SPEED m))))])))))
+
+      game-particles-lens
+      (lambda (p*)
+        (cons (particle
+               (ship-exhaust-port (game-ship game))
+               (posn* -1/100 (ship-v (game-ship game)))
+               INIT-PARTICLE-POWER)
+              p*))))]
 
   [#\a
-   (lens-thrush state-ship-lens ship-dir-lens)
+   (lens-thrush game-ship-lens ship-dir-lens)
    (lambda (dir)
      (radian+ dir SHIP-TURN))]
 
   [#\d
-   (lens-thrush state-ship-lens ship-dir-lens)
+   (lens-thrush game-ship-lens ship-dir-lens)
    (lambda (dir)
      (radian+ dir (- SHIP-TURN)))]
   )
 
-(define (game)
-  (define state
-    (box (ship (posn 0 0) 0 (posn 0 0))))
+(define (run-game)
+  (define game-state
+    (box (game (ship (posn 0 0) 0 (posn 0 0)) null)))
 
   (define ctrl
     (new game-ctrl%
-         [model state]
+         [model game-state]
          [keymap keymap]))
 
   (define v
@@ -213,5 +283,5 @@
     (new game-view%
          [parent v]
          [ctrl ctrl]
-         [model state]))
+         [model game-state]))
   (send v show #t))
