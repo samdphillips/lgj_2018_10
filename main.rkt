@@ -2,16 +2,48 @@
 
 (require racket/class
          racket/draw
+         racket/format
          racket/gui/base
+         racket/match
+
+         (only-in math pi)
 
          lens/common
          lens/data/struct)
+
+(define MAX-SHIP-SPEED 20)
+(define SHIP-POOF 2)
+(define SPACE-FRICTION 1/1000)
+(define SHIP-TURN (/ pi 18))
 
 (define (lens/get+set lens)
   (values (lambda (x)   (lens-view lens x))
           (lambda (x y) (lens-set lens x y))))
 
 (struct/lens posn [x y] #:transparent)
+
+(define (posn+ p0 p1)
+  (match-define (posn x0 y0) p0)
+  (match-define (posn x1 y1) p1)
+  (posn (+ x0 x1) (+ y0 y1)))
+
+(define (posn* d p)
+  (match-define (posn x y) p)
+  (posn (* d x) (* d y)))
+
+
+(define (posn-magnitude p)
+  (match-define (posn x y) p)
+  (sqrt (+ (* x x) (* y y))))
+
+(define TWOPI (* pi 2))
+
+(define (radian+ r0 r1)
+  (let reduce ([r (+ r0 r1)])
+    (cond
+      [(< r 0)     (reduce (+ TWOPI r))]
+      [(> r TWOPI) (reduce (- r TWOPI))]
+      [else r])))
 
 (struct/lens ship [posn dir v] #:transparent)
 
@@ -27,6 +59,9 @@
 (struct slime [posn v] #:transparent)
 |#
 
+(define ((state-transform lens txform) v)
+  (lens-transform lens v txform))
+
 (define-syntax-rule
   (with-transform dc (xf ...) body ...)
   (let ([init-tf (send dc get-transformation)])
@@ -36,12 +71,17 @@
      (lambda () body ...)
      (lambda () (send dc set-transformation init-tf)))))
 
+(define-syntax-rule (define-keymap name [key lens txform] ...)
+  (define name
+    (make-immutable-hasheq
+     (list (cons 'key (state-transform lens txform)) ...))))
+
 (define (draw-ship s dc)
   (with-transform dc
-    ([rotate (ship-dir s)]
-     [translate (ship-x s) (ship-y s)])
+    ([translate (ship-x s) (ship-y s)]
+     [rotate (- (ship-dir s))])
     (send dc draw-polygon
-          '((-5 . -5) (0 . 10) (5 . -5)))))
+          '((-5 . 5) (-5 . -5) (10 . 0)))))
 
 (define state-ship-lens identity-lens)
 
@@ -54,13 +94,32 @@
                 ctrl)
     (inherit get-size)
 
+    (define refresh-timer
+      (new timer%
+           [notify-callback
+            (lambda () (send this refresh-now))]))
+
     (define (do-paint canvas dc)
       (define-values (width height) (get-size))
       (send dc set-smoothing 'smoothed)
       (with-transform dc
         ([translate (/ width 2) (/ height 2)]
-         [scale 2 2])
-        (draw-ship (state-ship (unbox model)) dc)))
+         [scale 2 -2])
+        (draw-ship (state-ship (unbox model)) dc))
+      (match-let ([(ship (posn x y) dir (posn dx dy)) (unbox model)])
+        (define txt
+          (list
+           (~a "posn: (" (~r x) ", " (~r y) ")")
+           (~a "vec:  (" (~r dx) ", " (~r dy) ")")
+           (~a "dir: " (~r dir))))
+        (send dc set-font (make-font #:size 10))
+        (for ([r (in-naturals)]
+              [t (in-list txt)])
+          (send dc draw-text t 0 (* 15 r)))))
+
+    (define/override (on-focus f)
+      (super on-focus f)
+      (send refresh-timer start 16))
 
     (define/override (on-char k)
       (send ctrl on-key k))
@@ -69,19 +128,75 @@
 
 (define game-ctrl%
   (class object%
-    (init-field model)
+    (init-field model keymap)
+
+    (field [last-update (current-milliseconds)])
 
     (define/public (on-key k)
-      (println (send k get-key-code)))
+      (let/ec ret
+        (let* ([keycode (send k get-key-code)]
+               [transform (hash-ref keymap keycode ret)])
+          (set-box! model (transform (unbox model))))))
+
+    (define/public (on-update d model)
+      (lens-transform/list
+       model
+       state-ship-lens
+       (lambda (ship)
+         (lens-transform ship-posn-lens ship
+                         (lambda (p)
+                           (posn+ p (posn* d (ship-v ship))))))
+       ))
+
+    (define update-timer
+      (new timer%
+           [notify-callback
+            (lambda ()
+              (define cur-time (current-milliseconds))
+              (define d (/ (- cur-time last-update) 1000))
+              (set-box! model (send this on-update d (unbox model)))
+              (set! last-update cur-time))]
+           [interval 16]))
 
     (super-new)))
 
+(define-keymap keymap
+  [#\w
+   state-ship-lens
+   (lambda (ship)
+     (let ([d (ship-dir ship)])
+       (lens-set
+        ship-v-lens
+        ship
+        (let* ([p (posn+ (ship-v ship)
+                         (posn (* (cos d) SHIP-POOF)
+                               (* (sin d) SHIP-POOF)))]
+               [m (posn-magnitude p)])
+          (cond
+            [(< m MAX-SHIP-SPEED) p]
+            [else
+             (posn+ p (posn (* (cos d) (- MAX-SHIP-SPEED m))
+                            (* (sin d) (- MAX-SHIP-SPEED m))))])))))]
+
+  [#\a
+   (lens-thrush state-ship-lens ship-dir-lens)
+   (lambda (dir)
+     (radian+ dir SHIP-TURN))]
+
+  [#\d
+   (lens-thrush state-ship-lens ship-dir-lens)
+   (lambda (dir)
+     (radian+ dir (- SHIP-TURN)))]
+  )
+
 (define (game)
   (define state
-    (box (ship (posn 0 0) 0 0)))
+    (box (ship (posn 0 0) 0 (posn 0 0))))
 
   (define ctrl
-    (new game-ctrl% [model state]))
+    (new game-ctrl%
+         [model state]
+         [keymap keymap]))
 
   (define v
     (new (class frame%
