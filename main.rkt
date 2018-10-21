@@ -12,6 +12,7 @@
          lens/data/struct)
 
 (define MAX-SHIP-SPEED 100)
+(define MAX-ZOOM 4)
 (define SHIP-POOF 5)
 (define SPACE-FRICTION -1/1000)
 (define SHIP-TURN (/ pi 18))
@@ -20,6 +21,9 @@
 (define (lens/get+set lens)
   (values (lambda (x)   (lens-view lens x))
           (lambda (x y) (lens-set lens x y))))
+
+(define ((lens-view^ lens) v)
+  (lens-view lens v))
 
 (struct/lens posn [x y] #:transparent)
 
@@ -72,7 +76,7 @@
   (lens-transform lens v txform))
 
 (define-syntax-rule
-  (with-transform dc (xf ...) body ...)
+  (with-transformation dc (xf ...) body ...)
   (let ([init-tf (send dc get-transformation)])
     (dynamic-wind
      (lambda ()
@@ -91,7 +95,7 @@
     (r (+ start (* m v)))))
 
 (define (draw-ship s dc)
-  (with-transform dc
+  (with-transformation dc
     ([translate (ship-x s) (ship-y s)]
      [rotate (- (ship-dir s))])
     (send dc draw-polygon
@@ -117,38 +121,88 @@
         (send dc draw-point x y))
       (send dc set-pen orig))))
 
+(define game-viewport%
+  (class object%
+    (field [x 0]
+           [y 0]
+           [scale 4])
+
+    (define/public (update-viewport g d w h)
+      (define-syntax-rule (incr! var val)
+        (set! var (+ var val)))
+      (match-define (game (ship (posn shx shy) _ _) _) g)
+      (define dx (- shx x))
+      (define dy (- shy y))
+      (incr! x (* dx 0.3 d))
+      (incr! y (* dy 0.3 d))
+      (define w/2 (/ w 2))
+      (define h/2 (/ h 2))
+      (incr! scale
+             (let ([dx (abs dx)]
+                   [dy (abs dy)]
+                   [iw (if (> w/2 50) (- w/2 100) w/2)]
+                   [ih (if (> h/2 50) (- h/2 100) h/2)])
+               (let* ([scx (if (zero? dx) MAX-ZOOM (/ iw dx))]
+                      [scy (if (zero? dy) MAX-ZOOM (/ ih dy))])
+                 (* (- (min MAX-ZOOM scx scy) scale) 2.5 d))))
+      (define scalex scale)
+      (define scaley (- scale))
+      (define tx (- w/2 (* scalex x)))
+      (define ty (- h/2 (* scaley y)))
+      (vector scalex 0 0 scaley tx ty))
+
+    (super-new)))
+
 (define game-view%
   (class canvas%
     (init-field model
                 ctrl)
+    (field [last-update (current-milliseconds)])
     (inherit get-size)
+
+    (define viewport
+      (new game-viewport%))
 
     (define refresh-timer
       (new timer%
            [notify-callback
             (lambda () (send this refresh-now))]))
 
+    (define star-field
+      (for/list ([x (in-range 1000)])
+        (cons (random -1000 1000) (random -1000 1000))))
+
     (define (do-paint canvas dc)
-      (define-values (width height) (get-size))
+      (define-values (w h) (get-size))
+      (define cur-time (current-milliseconds))
+      (define d (/ (- cur-time last-update) 1000))
       (define g (unbox model))
       (send dc set-smoothing 'smoothed)
       (send dc set-background "black")
       (send dc set-text-foreground "white")
       (send dc clear)
-      (with-transform dc
-        ([translate (/ width 2) (/ height 2)]
-         [scale 2 -2])
+      (define view-transform (send viewport update-viewport g d w h))
+      (with-transformation dc ([transform view-transform])
+        (let ([orig (send dc get-pen)])
+          (send dc set-pen "white" 1 'solid)
+          (for ([s (in-list star-field)])
+            (send dc draw-point (car s) (cdr s)))
+          (send dc set-pen orig))
         (for ([p (in-list (game-particles g))])
           (draw-particle p dc))
         (draw-ship (game-ship g) dc))
+      (set! last-update cur-time)
       (match-let ([(game (ship (posn x y) dir (posn dx dy)) p*) g])
         (define txt
           (list
+           (~a "size: (" w ", " h ")")
+           (~a "fps: " (~r (round (/ 1 d))))
+           (~a "viewport: " view-transform)
            (~a "posn: (" (~r x) ", " (~r y) ")")
            (~a "vec:  (" (~r dx) ", " (~r dy) ")")
            (~a "dir: " (~r dir))
            (~a "particles: " (length p*))))
-        (send dc set-font (make-font #:size 10))
+        (send dc set-font (make-font #:size 10 #:family 'modern))
         (for ([r (in-naturals)]
               [t (in-list txt)])
           (send dc draw-text t 0 (* 15 r)))))
