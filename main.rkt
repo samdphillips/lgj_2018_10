@@ -140,8 +140,8 @@
       (incr! scale
              (let ([dx (abs dx)]
                    [dy (abs dy)]
-                   [iw (if (> w/2 50) (- w/2 100) w/2)]
-                   [ih (if (> h/2 50) (- h/2 100) h/2)])
+                   [iw (if (> w/2 100) (- w/2 100) w/2)]
+                   [ih (if (> h/2 100) (- h/2 100) h/2)])
                (let* ([scx (if (zero? dx) MAX-ZOOM (/ iw dx))]
                       [scy (if (zero? dy) MAX-ZOOM (/ ih dy))])
                  (* (- (min MAX-ZOOM scx scy) scale) 2.5 d))))
