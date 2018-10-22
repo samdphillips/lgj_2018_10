@@ -17,6 +17,7 @@
 (define SPACE-FRICTION -1/1000)
 (define SHIP-TURN (/ pi 18))
 (define INIT-PARTICLE-POWER 100)
+(define CAMERA-RATIO 0.9)
 
 (define (lens/get+set lens)
   (values (lambda (x)   (lens-view lens x))
@@ -133,8 +134,8 @@
       (match-define (game (ship (posn shx shy) _ _) _) g)
       (define dx (- shx x))
       (define dy (- shy y))
-      (incr! x (* dx 0.3 d))
-      (incr! y (* dy 0.3 d))
+      (incr! x (* dx CAMERA-RATIO d))
+      (incr! y (* dy CAMERA-RATIO d))
       (define w/2 (/ w 2))
       (define h/2 (/ h 2))
       (incr! scale
@@ -220,15 +221,35 @@
   (class object%
     (init-field model keymap)
 
-    (field [last-update (current-milliseconds)])
+    (field [last-update (current-milliseconds)]
+           [keys-pressed (make-hasheq)])
+
+    (define (key-active? k)
+      (hash-has-key? keys-pressed (send k get-key-code)))
+
+    (define (deactivate-key! k)
+      (hash-remove! keys-pressed (send k get-key-release-code)))
+
+    (define (activate-key! k)
+      (unless (key-active? k)
+        (let ([kc (send k get-key-code)]
+              [ts (send k get-time-stamp)])
+          (hash-set! keys-pressed kc ts))))
+
+    (define/public (dispatch-keys model)
+      (define k*
+        (sort
+         (for/list ([(k v) (in-hash keys-pressed)]) (cons v k))
+         < #:key car))
+      (for/fold ([model model]) ([k (in-list k*)])
+        ((hash-ref keymap (cdr k) (lambda () values)) model)))
 
     (define/public (on-key k)
-      (let/ec ret
-        (let* ([keycode (send k get-key-code)]
-               [transform (hash-ref keymap keycode ret)])
-          (set-box! model (transform (unbox model))))))
+      (if (eq? 'release (send k get-key-code))
+          (deactivate-key! k)
+          (activate-key! k)))
 
-    (define/public (on-update d model)
+    (define/public (do-update d model)
       (lens-transform/list
        model
 
@@ -264,7 +285,7 @@
             (lambda ()
               (define cur-time (current-milliseconds))
               (define d (/ (- cur-time last-update) 1000))
-              (set-box! model (send this on-update d (unbox model)))
+              (set-box! model (do-update d (dispatch-keys (unbox model))))
               (set! last-update cur-time))]
            [interval 16]))
 
