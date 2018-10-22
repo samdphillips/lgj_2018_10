@@ -95,6 +95,11 @@
         [r (if round? (lambda (v) (inexact->exact (round v))) values)])
     (r (+ start (* m v)))))
 
+(define ship-power
+  (let ([r->v (lerp (/ SHIP-POOF 2) SHIP-POOF #f)])
+    (lambda ()
+      (r->v (random)))))
+
 (define (draw-ship s dc)
   (with-transformation dc
     ([translate (ship-x s) (ship-y s)]
@@ -300,6 +305,7 @@
   [#\w
    identity-lens
    (lambda (game)
+     (define pwr (ship-power))
      (lens-transform/list
       game
 
@@ -310,8 +316,8 @@
            ship-v-lens
            ship
            (let* ([p (posn+ (ship-v ship)
-                            (posn (* (cos d) SHIP-POOF)
-                                  (* (sin d) SHIP-POOF)))]
+                            (posn (* (cos d) pwr)
+                                  (* (sin d) pwr)))]
                   [m (posn-magnitude p)])
              (cond
                [(< m MAX-SHIP-SPEED) p]
@@ -324,7 +330,7 @@
         (cons (particle
                (ship-exhaust-port (game-ship game))
                (posn* -1/100 (ship-v (game-ship game)))
-               INIT-PARTICLE-POWER)
+               (* (/ pwr SHIP-POOF) INIT-PARTICLE-POWER))
               p*))))]
 
   [#\a
