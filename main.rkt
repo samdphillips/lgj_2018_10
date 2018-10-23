@@ -6,7 +6,7 @@
          racket/gui/base
          racket/match
 
-         (only-in math pi)
+         (only-in racket/math pi)
 
          lens/common
          lens/data/struct)
