@@ -9,7 +9,9 @@
          (only-in racket/math pi)
 
          lens/common
-         lens/data/struct)
+         lens/data/struct
+
+         "geometry.rkt")
 
 (define MAX-SHIP-SPEED 100)
 (define MAX-ZOOM 4)
@@ -19,44 +21,10 @@
 (define INIT-PARTICLE-POWER 100)
 (define CAMERA-RATIO 0.9)
 
-(define (lens/get+set lens)
-  (values (lambda (x)   (lens-view lens x))
-          (lambda (x y) (lens-set lens x y))))
-
-(define ((lens-view^ lens) v)
-  (lens-view lens v))
-
-(struct/lens posn [x y] #:transparent)
-
-(define (posn+ p0 p1)
-  (match-define (posn x0 y0) p0)
-  (match-define (posn x1 y1) p1)
-  (posn (+ x0 x1) (+ y0 y1)))
-
-(define (posn* d p)
-  (match-define (posn x y) p)
-  (posn (* d x) (* d y)))
-
-(define (posn-magnitude p)
-  (match-define (posn x y) p)
-  (sqrt (+ (* x x) (* y y))))
-
-(define TWOPI (* pi 2))
-
-(define (radian+ r0 r1)
-  (let reduce ([r (+ r0 r1)])
-    (cond
-      [(< r 0)     (reduce (+ TWOPI r))]
-      [(> r TWOPI) (reduce (- r TWOPI))]
-      [else r])))
-
 (struct/lens ship [posn dir v] #:transparent)
 
-(define ship-x-lens (lens-thrush ship-posn-lens posn-x-lens))
-(define ship-y-lens (lens-thrush ship-posn-lens posn-y-lens))
-
-(define (ship-x s) (lens-view ship-x-lens s))
-(define (ship-y s) (lens-view ship-y-lens s))
+(define (ship-x s) (lens-view (lens-thrush ship-posn-lens posn-x-lens) s))
+(define (ship-y s) (lens-view (lens-thrush ship-posn-lens posn-y-lens) s))
 
 (define (ship-exhaust-port s)
   (match-define (ship (posn x y) dir _) s)
@@ -68,10 +36,12 @@
 #|
 (struct bullet [posn v] #:transparent)
 
-(struct slime [posn v] #:transparent)
 |#
 
-(struct/lens game [ship particles] #:transparent)
+
+(struct/lens slime [posn v] #:transparent)
+
+(struct/lens game [ship particles slimes] #:transparent)
 
 (define ((state-transform lens txform) v)
   (lens-transform lens v txform))
@@ -101,9 +71,10 @@
       (r->v (random)))))
 
 (define (draw-ship s dc)
+  (match-define (ship (posn x y) dir _) s)
   (with-transformation dc
-    ([translate (ship-x s) (ship-y s)]
-     [rotate (- (ship-dir s))])
+    ([translate x y]
+     [rotate (- dir)])
     (send dc draw-polygon
           '((-5 . 5) (-5 . -5) (10 . 0))))
 
@@ -127,6 +98,9 @@
         (send dc draw-point x y))
       (send dc set-pen orig))))
 
+(define (draw-slime s dc)
+  (void))
+
 (define game-viewport%
   (class object%
     (field [x 0]
@@ -136,7 +110,7 @@
     (define/public (update-viewport g d w h)
       (define-syntax-rule (incr! var val)
         (set! var (+ var val)))
-      (match-define (game (ship (posn shx shy) _ _) _) g)
+      (match-define (game (ship (posn shx shy) _ _) _ _) g)
       (define dx (- shx x))
       (define dy (- shy y))
       (incr! x (* dx CAMERA-RATIO d))
@@ -176,7 +150,7 @@
 
     (define star-field
       (for/list ([x (in-range 1000)])
-        (cons (random -1000 1000) (random -1000 1000))))
+        (random-posn -1000 1000 -1000 1000)))
 
     (define (do-paint canvas dc)
       (define-values (w h) (get-size))
@@ -192,13 +166,15 @@
         (let ([orig (send dc get-pen)])
           (send dc set-pen "white" 1 'solid)
           (for ([s (in-list star-field)])
-            (send dc draw-point (car s) (cdr s)))
+            (send dc draw-point (posn-x s) (posn-y s)))
           (send dc set-pen orig))
         (for ([p (in-list (game-particles g))])
           (draw-particle p dc))
-        (draw-ship (game-ship g) dc))
+        (draw-ship (game-ship g) dc)
+        (for ([sl (in-list (game-slimes g))])
+          (draw-slime sl dc)))
       (set! last-update cur-time)
-      (match-let ([(game (ship (posn x y) dir (posn dx dy)) p*) g])
+      (match-let ([(game (ship (posn x y) dir (posn dx dy)) p* s*) g])
         (define txt
           (list
            (~a "size: (" w ", " h ")")
@@ -297,10 +273,12 @@
     (super-new)))
 
 (define-keymap keymap
-  [escape
+  [#\r
    identity-lens
    (lambda (g)
-     (game (ship (posn 0 0) 0 (posn 0 0)) null))]
+     (game (ship (posn 0 0) 0 (posn 0 0))
+           null
+           (game-slimes g)))]
 
   [#\w
    identity-lens
@@ -344,9 +322,17 @@
      (radian+ dir (- SHIP-TURN)))]
   )
 
-(define (run-game)
+(define (run-game [seed (random (sub1 (expt 2 31)))])
+  (random-seed seed)
+
   (define game-state
-    (box (game (ship (posn 0 0) 0 (posn 0 0)) null)))
+    (box
+     (game
+      (ship (posn 0 0) 0 (posn 0 0))
+      null
+      (for/list ([n (in-range 20)])
+        (slime (random-posn -500 500 -500 500)
+               (posn 0 0))))))
 
   (define ctrl
     (new game-ctrl%
