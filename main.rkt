@@ -11,7 +11,8 @@
          lens/common
          lens/data/struct
 
-         "geometry.rkt")
+         "geometry.rkt"
+         "slime.rkt")
 
 (define MAX-SHIP-SPEED 100)
 (define MAX-ZOOM 4)
@@ -37,9 +38,6 @@
 (struct bullet [posn v] #:transparent)
 
 |#
-
-
-(struct/lens slime [posn v] #:transparent)
 
 (struct/lens game [ship particles slimes] #:transparent)
 
@@ -75,6 +73,7 @@
   (with-transformation dc
     ([translate x y]
      [rotate (- dir)])
+    (send dc set-pen "black" 1 'solid)
     (send dc draw-polygon
           '((-5 . 5) (-5 . -5) (10 . 0))))
 
@@ -97,9 +96,6 @@
         (send dc set-pen c s 'solid)
         (send dc draw-point x y))
       (send dc set-pen orig))))
-
-(define (draw-slime s dc)
-  (void))
 
 (define game-viewport%
   (class object%
@@ -171,8 +167,7 @@
         (for ([p (in-list (game-particles g))])
           (draw-particle p dc))
         (draw-ship (game-ship g) dc)
-        (for ([sl (in-list (game-slimes g))])
-          (draw-slime sl dc)))
+        (draw-slimes (game-slimes g) dc))
       (set! last-update cur-time)
       (match-let ([(game (ship (posn x y) dir (posn dx dy)) p* s*) g])
         (define txt
@@ -332,6 +327,7 @@
       null
       (for/list ([n (in-range 20)])
         (slime (random-posn -500 500 -500 500)
+               (+ 5 (random 15))
                (posn 0 0))))))
 
   (define ctrl
