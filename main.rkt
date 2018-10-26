@@ -167,7 +167,7 @@
         (for ([p (in-list (game-particles g))])
           (draw-particle p dc))
         (draw-ship (game-ship g) dc)
-        (draw-slimes (game-slimes g) dc))
+        (draw-slimes (game-slimes g) dc 20 -500 500 -500 500))
       (set! last-update cur-time)
       (match-let ([(game (ship (posn x y) dir (posn dx dy)) p* s*) g])
         (define txt
@@ -325,7 +325,7 @@
      (game
       (ship (posn 0 0) 0 (posn 0 0))
       null
-      (for/list ([n (in-range 20)])
+      (for/list ([n 10])
         (slime (random-posn -500 500 -500 500)
                (+ 5 (random 15))
                (posn 0 0))))))
