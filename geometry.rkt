@@ -1,7 +1,6 @@
 #lang racket/base
 
 (require racket/contract
-         racket/match
          racket/math
 
          lens/common
@@ -15,8 +14,10 @@
 
                [random-posn (-> real? real? real? real? posn?)]
                [posn+ (-> posn? posn? posn?)]
+               [posn+xy (-> posn? real? real? posn?)]
                [posn* (-> real? posn? posn?)]
                [posn-magnitude (-> posn? real?)]
+               [posn-norm (-> posn? posn?)]
 
                [radian+ (-> radian? radian? radian?)]
                ))
@@ -27,18 +28,27 @@
   (posn (+ x0 (* (- x1 x0) (random)))
         (+ y0 (* (- y1 y0) (random)))))
 
+(require (for-syntax racket/base))
+
 (define (posn+ p0 p1)
-  (match-define (posn x0 y0) p0)
-  (match-define (posn x1 y1) p1)
-  (posn (+ x0 x1) (+ y0 y1)))
+  (posn (+ (posn-x p0) (posn-x p1))
+        (+ (posn-y p0) (posn-y p1))))
+
+(define (posn+xy p x y)
+  (posn (+ (posn-x p) x)
+        (+ (posn-y p) y)))
 
 (define (posn* d p)
-  (match-define (posn x y) p)
-  (posn (* d x) (* d y)))
+  (posn (* d (posn-x p)) (* d (posn-y p))))
 
 (define (posn-magnitude p)
-  (match-define (posn x y) p)
-  (sqrt (+ (* x x) (* y y))))
+  (let ([x (posn-x p)]
+        [y (posn-y p)])
+    (sqrt (+ (* x x) (* y y)))))
+
+(define (posn-norm p)
+  (let ([m (posn-magnitude p)])
+    (posn* (/ 1 m) p)))
 
 (define TWOPI (* pi 2))
 
