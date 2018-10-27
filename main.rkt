@@ -14,7 +14,7 @@
          "geometry.rkt"
          "slime.rkt")
 
-(define MAX-SHIP-SPEED 100)
+(define MAX-SHIP-SPEED 200)
 (define MAX-ZOOM 4)
 (define SHIP-POOF 5)
 (define SPACE-FRICTION -1/1000)
@@ -22,7 +22,13 @@
 (define INIT-PARTICLE-POWER 100)
 (define CAMERA-RATIO 0.9)
 
+
+
+(struct/lens game [ship particles slimes] #:transparent)
 (struct/lens ship [posn dir v] #:transparent)
+(struct/lens particle [posn v power] #:transparent)
+
+(define game-ship-v-lens (lens-thrush game-ship-lens ship-v-lens))
 
 (define (ship-x s) (lens-view (lens-thrush ship-posn-lens posn-x-lens) s))
 (define (ship-y s) (lens-view (lens-thrush ship-posn-lens posn-y-lens) s))
@@ -31,15 +37,6 @@
   (match-define (ship (posn x y) dir _) s)
   (posn (+ x (* (cos dir) -5))
         (+ y (* (sin dir) -5))))
-
-(struct/lens particle [posn v power] #:transparent)
-
-#|
-(struct bullet [posn v] #:transparent)
-
-|#
-
-(struct/lens game [ship particles slimes] #:transparent)
 
 (define ((state-transform lens txform) v)
   (lens-transform lens v txform))
@@ -101,11 +98,15 @@
   (class object%
     (field [x 0]
            [y 0]
-           [scale 4])
+           [w 0]
+           [h 0]
+           [scale MAX-ZOOM])
 
-    (define/public (update-viewport g d w h)
+    (define/public (update-viewport g d nw nh)
       (define-syntax-rule (incr! var val)
         (set! var (+ var val)))
+      (set! w nw)
+      (set! h nh)
       (match-define (game (ship (posn shx shy) _ _) _ _) g)
       (define dx (- shx x))
       (define dy (- shy y))
@@ -167,17 +168,18 @@
         (for ([p (in-list (game-particles g))])
           (draw-particle p dc))
         (draw-ship (game-ship g) dc)
-        (draw-slimes (game-slimes g) dc 20 -500 500 -500 500))
+        #;(draw-slimes (game-slimes g) dc 20 -500 500 -500 500))
       (set! last-update cur-time)
-      (match-let ([(game (ship (posn x y) dir (posn dx dy)) p* s*) g])
+      (match-let ([(game (ship (posn x y) dir (and v (posn dx dy))) p* s*) g])
         (define txt
           (list
-           (~a "size: (" w ", " h ")")
-           (~a "fps: " (~r (round (/ 1 d))))
+           (~a "size:     (" w ", " h ")")
+           (~a "fps:      " (~r (round (/ 1 d))))
            (~a "viewport: " view-transform)
-           (~a "posn: (" (~r x) ", " (~r y) ")")
-           (~a "vec:  (" (~r dx) ", " (~r dy) ")")
-           (~a "dir: " (~r dir))
+           (~a "posn:     (" (~r x) ", " (~r y) ")")
+           (~a "vec:      (" (~r dx) ", " (~r dy) ")")
+           (~a "speed:    " (~r (posn-magnitude v)))
+           (~a "dir:      " (~r dir))
            (~a "particles: " (length p*))))
         (send dc set-font (make-font #:size 10 #:family 'modern))
         (for ([r (in-naturals)]
@@ -288,15 +290,16 @@
           (lens-set
            ship-v-lens
            ship
-           (let* ([p (posn+ (ship-v ship)
-                            (posn (* (cos d) pwr)
-                                  (* (sin d) pwr)))]
-                  [m (posn-magnitude p)])
-             (cond
-               [(< m MAX-SHIP-SPEED) p]
-               [else
-                (posn+ p (posn (* (cos d) (- MAX-SHIP-SPEED m))
-                               (* (sin d) (- MAX-SHIP-SPEED m))))])))))
+           (posn+xy (ship-v ship)
+                    (* (cos d) pwr)
+                    (* (sin d) pwr)))))
+
+      game-ship-v-lens
+      (lambda (v)
+        (let ([m (posn-magnitude v)])
+          (if (> m MAX-SHIP-SPEED)
+              (posn* MAX-SHIP-SPEED (posn-norm v))
+              v)))
 
       game-particles-lens
       (lambda (p*)
