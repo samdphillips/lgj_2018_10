@@ -14,6 +14,8 @@
          "geometry.rkt"
          "slime.rkt")
 
+(provide run-game)
+
 (define MAX-SHIP-SPEED 200)
 (define MAX-ZOOM 4)
 (define SHIP-POOF 5)
@@ -174,7 +176,7 @@
         (define txt
           (list
            (~a "size:     (" w ", " h ")")
-           (~a "fps:      " (~r (round (/ 1 d))))
+           (~a "fps:      " (~r (if (zero? d) 0 (round (/ 1 d)))))
            (~a "viewport: " view-transform)
            (~a "posn:     (" (~r x) ", " (~r y) ")")
            (~a "vec:      (" (~r dx) ", " (~r dy) ")")
