@@ -363,10 +363,15 @@
            (define/override (on-focus f)
              (super on-focus f)
              (send (car (send this get-children)) focus))
+           (define/augment (on-close)
+             (inner (void) on-close)
+             (exit))
            (super-new))
          [label "slimestroids"]
          [width 800]
          [height 600]))
+
+  (send v center 'both)
 
   (define c
     (new game-view%
