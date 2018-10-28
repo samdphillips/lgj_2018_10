@@ -104,6 +104,12 @@
            [h 0]
            [scale MAX-ZOOM])
 
+    (define/public (get-bbox)
+      (let ([vw/2 (/ w (* scale 2))]
+            [vh/2 (/ h (* scale 2))])
+        (cons (posn (- x vw/2) (- y vh/2))
+              (posn (+ x vw/2) (+ y vh/2)))))
+
     (define/public (update-viewport g d nw nh)
       (define-syntax-rule (incr! var val)
         (set! var (+ var val)))
@@ -161,6 +167,7 @@
       (send dc set-text-foreground "white")
       (send dc clear)
       (define view-transform (send viewport update-viewport g d w h))
+      (define slimes-drawn (box 0))
       (with-transformation dc ([transform view-transform])
         (let ([orig (send dc get-pen)])
           (send dc set-pen "white" 1 'solid)
@@ -170,18 +177,27 @@
         (for ([p (in-list (game-particles g))])
           (draw-particle p dc))
         (draw-ship (game-ship g) dc)
-        #;(draw-slimes (game-slimes g) dc 20 -500 500 -500 500))
+        (match-let ([(cons (posn x0 y0) (posn x1 y1))
+                     (send viewport get-bbox)]
+                    [step (* 15 (/ 1 (get-field scale viewport)))])
+          (define (tf v) (* 30 (truncate (/ v 30))))
+          (draw-slimes (game-slimes g) dc slimes-drawn
+                       step
+                       (- (tf x0) 30) (+ (tf x1) 30)
+                       (- (tf y0) 30) (+ (tf y1) 30))))
       (set! last-update cur-time)
       (match-let ([(game (ship (posn x y) dir (and v (posn dx dy))) p* s*) g])
         (define txt
           (list
-           (~a "size:     (" w ", " h ")")
-           (~a "fps:      " (~r (if (zero? d) 0 (round (/ 1 d)))))
-           (~a "viewport: " view-transform)
-           (~a "posn:     (" (~r x) ", " (~r y) ")")
-           (~a "vec:      (" (~r dx) ", " (~r dy) ")")
-           (~a "speed:    " (~r (posn-magnitude v)))
-           (~a "dir:      " (~r dir))
+           (~a "size:      (" w ", " h ")")
+           (~a "fps:       " (~r (if (zero? d) 0 (round (/ 1 d)))))
+           (~a "viewport:  " view-transform)
+           (~a "view:      " (send viewport get-bbox))
+           (~a "posn:      (" (~r x) ", " (~r y) ")")
+           (~a "vec:       (" (~r dx) ", " (~r dy) ")")
+           (~a "speed:     " (~r (posn-magnitude v)))
+           (~a "dir:       " (~r dir))
+           (~a "slimes:    " (~r (unbox slimes-drawn)))
            (~a "particles: " (length p*))))
         (send dc set-font (make-font #:size 10 #:family 'modern))
         (for ([r (in-naturals)]
@@ -322,7 +338,8 @@
      (radian+ dir (- SHIP-TURN)))]
   )
 
-(define (run-game [seed (random (sub1 (expt 2 31)))])
+(define (run-game #:slimes [num-slimes 20]
+                  #:seed [seed (random (sub1 (expt 2 31)))])
   (random-seed seed)
 
   (define game-state
@@ -330,7 +347,7 @@
      (game
       (ship (posn 0 0) 0 (posn 0 0))
       null
-      (for/list ([n 10])
+      (for/list ([_n num-slimes])
         (slime (random-posn -500 500 -500 500)
                (+ 5 (random 15))
                (posn 0 0))))))
@@ -348,8 +365,8 @@
              (send (car (send this get-children)) focus))
            (super-new))
          [label "slimestroids"]
-         [width 500]
-         [height 500]))
+         [width 800]
+         [height 600]))
 
   (define c
     (new game-view%
