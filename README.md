@@ -1,6 +1,5 @@
 
-Slimesteroids
-=============
+# Slimesteroids
 
 **Trapped in space.  Surrounded by murderous slimes.  Will you survive?
 An unfinished Lisp Game Jam submission.**
@@ -13,3 +12,11 @@ nowhere a fast moving green slime overtook your vessel, surrounded it,
 and killed all of the crew.  You barely made it out into a nimble escape
 pod, and now must escape the slimes.
 
+## Requirements
+
+* Racket 6.11 or later
+* [lens package](https://github.com/jackfirth/lens)
+
+```shell
+raco pkg install lens
+```
